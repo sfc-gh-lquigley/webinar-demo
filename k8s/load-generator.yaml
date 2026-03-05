@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: load-generator-script
+  namespace: observe-demo
+data:
+  generate-load.sh: |
+    #!/bin/sh
+    BASE_URL="http://k8s-observed-observed-25079cf205-1293532943.us-west-2.elb.amazonaws.com"
+    DURATION=${DURATION:-300}
+    RPS=${RPS:-5}
+    DELAY=$(awk "BEGIN {printf \"%.2f\", 1/$RPS}")
+
+    ENDPOINTS="GET /
+    GET /health
+    GET /api/items
+    POST /api/items
+    GET /api/slow?delay=200
+    GET /api/slow?delay=500
+    GET /api/slow?delay=1500
+    GET /api/error?rate=15
+    GET /api/error?rate=40"
+
+    WEIGHTS="15 5 25 15 8 5 2 15 10"
+
+    pick_endpoint() {
+      TOTAL=0
+      for w in $WEIGHTS; do TOTAL=$((TOTAL + w)); done
+      RAND=$(($(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % TOTAL))
+      ACC=0
+      IDX=1
+      for w in $WEIGHTS; do
+        ACC=$((ACC + w))
+        if [ "$RAND" -lt "$ACC" ]; then
+          echo "$ENDPOINTS" | sed -n "${IDX}p"
+          return
+        fi
+        IDX=$((IDX + 1))
+      done
+      echo "GET /"
+    }
+
+    NAMES='["Gadget X","Sensor Y","Module Z","Part Alpha","Widget Pro","Relay K","Node V","Adapter Q"]'
+
+    END=$(($(date +%s) + DURATION))
+    COUNT=0
+
+    echo "Starting load generation: ${RPS} req/s for ${DURATION}s against ${BASE_URL}"
+
+    while [ "$(date +%s)" -lt "$END" ]; do
+      LINE=$(pick_endpoint)
+      METHOD=$(echo "$LINE" | awk '{print $1}')
+      PATH_PART=$(echo "$LINE" | awk '{print $2}')
+
+      if [ "$METHOD" = "POST" ]; then
+        IDX=$(($(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 8))
+        NAME=$(echo "$NAMES" | sed 's/\[//;s/\]//;s/"//g' | cut -d',' -f$((IDX + 1)) | xargs)
+        curl -s -o /dev/null -w "%{http_code}" -X POST \
+          -H "Content-Type: application/json" \
+          -d "{\"name\":\"${NAME}\"}" \
+          "${BASE_URL}${PATH_PART}" &
+      else
+        curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}${PATH_PART}" &
+      fi
+
+      COUNT=$((COUNT + 1))
+      if [ $((COUNT % 50)) -eq 0 ]; then
+        echo "Sent $COUNT requests..."
+        wait
+      fi
+
+      sleep "$DELAY"
+    done
+
+    wait
+    echo "Load generation complete. Sent $COUNT requests."
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: load-generator
+  namespace: observe-demo
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 330
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: load-generator
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: load-gen
+              image: curlimages/curl:8.5.0
+              command: ["/bin/sh", "/scripts/generate-load.sh"]
+              env:
+                - name: DURATION
+                  value: "270"
+                - name: RPS
+                  value: "5"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: load-generator-script
+                defaultMode: 0755
