@@ -18,11 +18,16 @@ app.use((req, res, next) => {
   req.requestId = req.headers["x-request-id"] || uuidv4();
   res.setHeader("x-request-id", req.requestId);
 
+  const amznTraceId = req.headers["x-amzn-trace-id"] || "";
+  const rootMatch = amznTraceId.match(/Root=([^;]+)/);
+  req.awsRootTraceId = rootMatch ? rootMatch[1] : null;
+
   const start = Date.now();
 
   res.on("finish", () => {
     log("info", "request completed", {
       requestId: req.requestId,
+      awsRootTraceId: req.awsRootTraceId,
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
