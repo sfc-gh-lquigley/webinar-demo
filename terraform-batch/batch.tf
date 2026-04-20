@@ -51,7 +51,7 @@ resource "aws_batch_job_definition" "trade_pricing" {
   platform_capabilities = ["FARGATE"]
 
   container_properties = jsonencode({
-    image   = "python:3.11-slim"
+    image   = "public.ecr.aws/docker/library/python:3.11-slim"
     command = ["python3", "-c", local.job_script]
 
     resourceRequirements = [
