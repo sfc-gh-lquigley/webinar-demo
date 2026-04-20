@@ -44,15 +44,15 @@ resource "aws_batch_job_queue" "main" {
   }
 }
 
-resource "aws_batch_job_definition" "etl" {
-  name = "${var.prefix}-etl-ingestion"
+resource "aws_batch_job_definition" "trade_pricing" {
+  name = "${var.prefix}-trade-pricing"
   type = "container"
 
   platform_capabilities = ["FARGATE"]
 
   container_properties = jsonencode({
     image   = "python:3.11-slim"
-    command = ["python3", "-c", local.etl_job_script]
+    command = ["python3", "-c", local.job_script]
 
     resourceRequirements = [
       { type = "VCPU",   value = "0.25" },
@@ -63,10 +63,8 @@ resource "aws_batch_job_definition" "etl" {
     jobRoleArn       = aws_iam_role.batch_job.arn
 
     environment = [
-      { name = "ETL_DATASET",  value = "default" },
-      { name = "ETL_PIPELINE", value = "batch-etl-pipeline" },
-      { name = "ETL_SOURCE",   value = "s3://observe-demo-datalake/raw" },
-      { name = "ETL_DEST",     value = "s3://observe-demo-datalake/processed" }
+      { name = "PORTFOLIO",     value = "default" },
+      { name = "BATCH_PIPELINE", value = "trade-pricing" }
     ]
 
     logConfiguration = {
@@ -74,7 +72,7 @@ resource "aws_batch_job_definition" "etl" {
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.batch.name
         "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = "etl-ingestion"
+        "awslogs-stream-prefix" = "trade-pricing"
       }
     }
 

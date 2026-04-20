@@ -2,15 +2,15 @@ data "aws_caller_identity" "current" {}
 
 locals {
   account_id     = data.aws_caller_identity.current.account_id
-  etl_job_script = file("${path.module}/scripts/etl_job.py")
+  job_script = file("${path.module}/scripts/etl_job.py")
 
-  datasets = ["customers", "orders", "inventory"]
+  datasets = ["equity_derivatives", "fx_options", "interest_rate_swaps"]
 
   sfn_definition = jsonencode({
-    Comment = "ETL Batch Pipeline - submits parallel data ingestion jobs"
-    StartAt = "RunETLPipeline"
+    Comment = "Finance Trade Pricing Pipeline - parallel portfolio pricing jobs"
+    StartAt = "RunPricingPipeline"
     States = {
-      RunETLPipeline = {
+      RunPricingPipeline = {
         Type = "Parallel"
         Branches = [
           for ds in local.datasets : {
@@ -20,13 +20,13 @@ locals {
                 Type     = "Task"
                 Resource = "arn:aws:states:::batch:submitJob.sync"
                 Parameters = {
-                  "JobName.$"     = "States.Format('etl-${ds}-{}', $$.Execution.Name)"
-                  JobDefinition   = aws_batch_job_definition.etl.arn
+                  "JobName.$"     = "States.Format('pricing-${ds}-{}', $$.Execution.Name)"
+                  JobDefinition   = aws_batch_job_definition.trade_pricing.arn
                   JobQueue        = aws_batch_job_queue.main.arn
                   ContainerOverrides = {
                     Environment = [
-                      { Name = "ETL_DATASET",  Value = ds },
-                      { Name = "ETL_PIPELINE", Value = "batch-etl-pipeline" }
+                      { Name = "PORTFOLIO",     Value = ds },
+                      { Name = "BATCH_PIPELINE", Value = "trade-pricing" }
                     ]
                   }
                 }
@@ -58,12 +58,12 @@ locals {
             }
           }
         ]
-        Next = "PipelineComplete"
+        Next = "PricingComplete"
       }
-      PipelineComplete = {
+      PricingComplete = {
         Type = "Pass"
         Parameters = {
-          pipeline = "batch-etl-pipeline"
+          pipeline = "trade-pricing"
           status   = "COMPLETE"
         }
         End = true

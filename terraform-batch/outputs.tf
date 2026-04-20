@@ -7,7 +7,7 @@ output "batch_job_queue" {
 }
 
 output "batch_job_definition" {
-  value = aws_batch_job_definition.etl.arn
+  value = aws_batch_job_definition.trade_pricing.arn
 }
 
 output "cloudwatch_log_group" {
