@@ -4,7 +4,7 @@ resource "aws_cloudwatch_log_group" "batch" {
 }
 
 resource "aws_cloudwatch_log_subscription_filter" "batch_to_observe" {
-  name            = "observe-batch-logs"
+  name            = "webinar-observe-subscription"
   log_group_name  = aws_cloudwatch_log_group.batch.name
   filter_pattern  = ""
   destination_arn = var.logwriter_firehose_arn

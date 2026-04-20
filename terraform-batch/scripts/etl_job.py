@@ -9,6 +9,9 @@ portfolio = os.environ.get("PORTFOLIO", "equity_derivatives")
 pipeline  = os.environ.get("BATCH_PIPELINE", "trade-pricing")
 attempt   = int(os.environ.get("AWS_BATCH_JOB_ATTEMPT", "0"))
 
+_pool_rng = random.Random(42)
+TRADE_POOL = [str(uuid.UUID(int=_pool_rng.getrandbits(128))) for _ in range(20)]
+
 random.seed(os.environ.get("AWS_BATCH_JOB_ID", "local"))
 
 pricing_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -46,8 +49,12 @@ INSTRUMENTS = {
     ],
 }
 
+trade_id   = random.choice(TRADE_POOL)
+instruments = INSTRUMENTS.get(portfolio, INSTRUMENTS["equity_derivatives"])
+instrument  = random.choice(instruments)
+
 log("INFO", "BatchRunner",
-    f"Starting trade pricing job | portfolio={portfolio} pipeline={pipeline} attempt={attempt}")
+    f"Starting trade pricing job | portfolio={portfolio} trade={trade_id} pipeline={pipeline} attempt={attempt}")
 
 log("INFO", "MarketDataLoader", f"Loading market data for pricing date {pricing_date}")
 time.sleep(random.uniform(0.3, 1.0))
@@ -61,20 +68,15 @@ log("INFO", "PortfolioManager", f"Loading portfolio {portfolio}, {num_trades} tr
 time.sleep(random.uniform(0.1, 0.4))
 log("INFO", "PortfolioManager", f"Portfolio loaded: {num_trades} active instruments")
 
-instruments    = INSTRUMENTS.get(portfolio, INSTRUMENTS["equity_derivatives"])
-output_prefix  = f"/output/{portfolio}/{pricing_date}"
-
-total_elapsed     = 0.0
-successful        = 0
-failed            = 0
-batch_start       = 0.0
-trades_in_batch   = 0
-batch_size        = random.randint(8, 20)
+total_elapsed   = 0.0
+successful      = 0
+failed          = 0
+batch_start     = 0.0
+trades_in_batch = 0
+batch_size      = random.randint(8, 20)
 
 for i in range(num_trades):
-    trade_id    = str(uuid.uuid4())
     second_uuid = str(uuid.uuid4())
-    instrument  = random.choice(instruments)
     calc_dur    = random.uniform(0.05, 2.5)
     total_elapsed += calc_dur
     trades_in_batch += 1

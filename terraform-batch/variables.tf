@@ -15,11 +15,11 @@ variable "private_subnet_ids" {
 }
 
 variable "logwriter_firehose_arn" {
-  default = "arn:aws:firehose:us-west-2:384876807807:deliverystream/aws-integration-n89zfn1a-LogWriter"
+  default = "arn:aws:firehose:us-west-2:384876807807:deliverystream/webinar-demo-stack-LogWriter"
 }
 
 variable "logwriter_destination_role_arn" {
-  default = "arn:aws:iam::384876807807:role/aws-integration-n89zfn1a-LogWriter--DestinationRole-4rT1oJdDjAbb"
+  default = "arn:aws:iam::384876807807:role/webinar-demo-stack-LogWriter-9CN804-DestinationRole-LxkKGdCWFRA3"
 }
 
 variable "prefix" {
