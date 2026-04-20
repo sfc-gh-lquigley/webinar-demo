@@ -1,64 +1,132 @@
-# observe-demo-app
+# webinar-demo
 
-A Node.js/Express demo app for EKS with AWS WAF, ALB Ingress, and structured JSON logging with UUID request IDs.
+Observe demo environment for the `146268791759` sandbox tenant. Simulates realistic workloads across multiple AWS services to demonstrate Observe's observability capabilities.
 
-## Architecture
+## Repository Structure
 
 ```
-Internet → AWS WAF → ALB (via Ingress) → EKS Pods (Node.js/Express)
+├── app/                    # Node.js/Express demo app (EKS + WAF)
+├── k8s/                    # Kubernetes manifests
+├── cloudformation.yaml     # VPC, EKS cluster, ECR, WAF WebACL
+├── deploy.sh               # Full EKS deployment script
+├── teardown.sh             # Full teardown script
+│
+├── terraform/              # Observe dashboards (AWS + RabbitMQ)
+├── terraform-rabbitmq/     # RabbitMQ EC2 instance + OTEL Collector + load generator
+└── terraform-batch/        # AWS Batch ETL simulation (Fargate + Step Functions)
 ```
 
-- **CloudFormation** provisions: VPC, EKS cluster, managed node group, ECR, WAF WebACL
-- **deploy.sh** handles: OIDC provider, ALB Controller IAM + Helm install, Docker build/push, K8s deploy
-- **WAF rules**: AWS Common Rule Set, Known Bad Inputs, IP rate limiting (2000 req/5min)
+---
 
-## Prerequisites
+## Modules
 
-- AWS CLI v2 configured with credentials
-- Docker
-- kubectl
-- Helm 3
+### `app/` — EKS Web App
 
-## Quick Start
+Node.js/Express app running on EKS behind AWS WAF. Emits structured JSON logs with UUID request IDs.
+
+**Architecture**: Internet → AWS WAF → ALB → EKS Pods (Node.js/Express)
 
 ```bash
-# Deploy everything (default region: us-west-2)
-./deploy.sh
-
-# Or specify stack/cluster names and region
-AWS_REGION=us-east-1 ./deploy.sh my-stack my-cluster
+./deploy.sh             # Deploy everything (default: us-west-2)
+./teardown.sh           # Tear down everything
 ```
 
-## Endpoints
+**Endpoints**: `/`, `/health`, `/api/items`, `/api/slow`, `/api/error`
 
-| Path | Method | Description |
-|------|--------|-------------|
-| `/` | GET | Service info |
-| `/health` | GET | Health check |
-| `/api/items` | GET | List items |
-| `/api/items` | POST | Create item (body: `{"name": "..."}`) |
-| `/api/slow?delay=2000` | GET | Simulate slow response |
-| `/api/error?rate=50` | GET | Simulate errors at given rate % |
+---
 
-## Log Format
+### `terraform/` — Observe Dashboards
 
-Every log line is JSON with a UUID `requestId`:
+Terraform-managed Observe dashboards using the `observeinc/observe` provider.
 
+- AWS integration dashboard
+- RabbitMQ metrics dashboard
+
+```bash
+cd terraform/
+terraform init
+terraform apply -var="observe_api_token=<token>"
+```
+
+---
+
+### `terraform-rabbitmq/` — RabbitMQ + OTEL
+
+EC2 instance running RabbitMQ (Docker) with an OpenTelemetry Collector scraping RabbitMQ metrics and forwarding to Observe.
+
+**Components**:
+- RabbitMQ 3.13 (Docker, bind-mounted `rabbitmq.conf` for memory watermark)
+- OTEL Collector with `rabbitmq` receiver → Observe OTLP endpoint
+- Load generator simulating queue producers/consumers
+- 20GB EBS + 4GB swap (prevents OOM kills)
+
+```bash
+cd terraform-rabbitmq/
+terraform init
+terraform apply
+```
+
+---
+
+### `terraform-batch/` — AWS Batch ETL Simulation
+
+Simulates a production ETL pipeline using AWS Batch on Fargate, orchestrated by Step Functions and triggered every 3 minutes via EventBridge Scheduler. Logs stream to CloudWatch (`/aws/batch/job`) and are forwarded to Observe via Firehose.
+
+**Architecture**:
+```
+EventBridge Scheduler (every 3 min)
+  → Step Functions Standard Workflow
+    → AWS Batch (Fargate SPOT + ON_DEMAND fallback)
+      → 3 parallel ETL jobs: customers / orders / inventory
+        → CloudWatch Logs (/aws/batch/job)
+          → Kinesis Firehose → Observe
+```
+
+**ETL job behavior** (`scripts/etl_job.py`):
+- Stages: `init → extract → transform → load → complete`
+- Realistic record counts (5K–100K), ~15% failure rate
+- Failure types: `source_connection_timeout`, `schema_validation_failure`, `destination_unavailable`, `quota_exceeded`
+- Structured JSON logs with `job_id`, `pipeline`, `dataset`, `stage`, `throughput_rps`
+
+**Log format**:
 ```json
 {
-  "timestamp": "2026-03-04T12:00:00.000Z",
-  "level": "info",
-  "message": "request completed",
-  "requestId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "method": "GET",
-  "path": "/api/items",
-  "statusCode": 200,
-  "durationMs": 12
+  "timestamp": "2026-04-20T18:23:31Z",
+  "level": "INFO",
+  "job_id": "b91b52d2-...",
+  "pipeline": "batch-etl-pipeline",
+  "dataset": "orders",
+  "stage": "complete",
+  "total_records_in": 73533,
+  "total_records_out": 72746,
+  "records_rejected": 787,
+  "throughput_rps": 1984.5
 }
 ```
 
-## Cleanup
-
 ```bash
-./teardown.sh
+cd terraform-batch/
+terraform init
+terraform apply
 ```
+
+---
+
+## Observe Integration
+
+All modules forward telemetry to Observe tenant `146268791759` via the `aws-integration-n89zfn1a` stack:
+
+| Source | Type | Observe Dataset |
+|--------|------|-----------------|
+| EKS pods | CloudWatch Logs | AWS Logs |
+| RabbitMQ | OTLP metrics | Metrics |
+| AWS Batch | CloudWatch Logs → Firehose | AWS Logs |
+
+---
+
+## Prerequisites
+
+- AWS CLI v2 with SSO credentials (`us-west-2`)
+- Terraform >= 1.3
+- Docker
+- kubectl + Helm 3 (for EKS module)
