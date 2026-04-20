@@ -89,7 +89,7 @@ for i in range(num_trades):
             f"Calc finished in {calc_dur:.3f}s, Total time elapsed: {total_elapsed:.3f}s")
         file_type = random.choice(["NPV", "Greeks", "Sensitivities", "CashFlow"])
         log("INFO", "FileUtil",
-            f"Written {file_type} file {output_prefix}/{trade_id}/{second_uuid}/")
+            f"Written {file_type} file {pricing_date}/{trade_id}/{second_uuid}/")
 
     if trades_in_batch >= batch_size or i == num_trades - 1:
         batch_dur = total_elapsed - batch_start
